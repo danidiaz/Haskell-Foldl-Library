@@ -81,7 +81,13 @@ module Control.Foldl (
     , set
     , vector
 
+    -- * Whittles
+    , Whittle(..)
+    , whitcompose
+    , whitcomposef
+    , chunksOf
     -- * Utilities
+
     -- $utilities
     , purely
     , impurely
@@ -103,6 +109,7 @@ module Control.Foldl (
     , module Data.Vector.Generic
     ) where
 
+import qualified Control.Category as C
 import Control.Applicative (Applicative(pure, (<*>)),liftA2)
 import Control.Foldl.Internal (Maybe'(..), lazy, Either'(..), hush)
 import Control.Monad ((>=>))
@@ -664,6 +671,68 @@ vector = FoldM step begin done
         v <- V.unsafeFreeze mv
         return (V.unsafeTake idx v)
 {-# INLINABLE vector #-}
+
+
+data Whittle r i o
+  = forall x. Whittle (x -> i -> (Maybe o, x)) x (x -> Maybe i -> (Maybe o, r)) 
+ 
+whitcompose :: (r1 -> r2 -> r) -> Whittle r1 a b -> Whittle r2 b c -> Whittle r a c
+whitcompose f (Whittle step1 state1 done1) (Whittle step2 state2 done2) = 
+    Whittle step (state1, state2) done
+        where
+            step (s1,s2) i = 
+                let (o1, s1') = step1 s1 i 
+                in
+                case o1 of 
+                   Nothing -> (Nothing, (s1',s2))
+                   Just i' ->
+                       let (o2,s2') = step2 s2 i'
+                           s = (s1',s2')
+                       in
+                       (o2, s)
+            done (s1,s2) mi = 
+                let (o1,r1) = done1 s1 mi
+                    (o2,r2) = done2 s2 o1
+                in
+                (o2, f r1 r2)
+
+instance Monoid r => C.Category (Whittle r) where
+    id = Whittle (\_ i -> (Just i, ())) () (\_ mi -> (mi, mempty))
+    w2 . w1 = whitcompose mappend w1 w2
+
+whitcomposef :: (wr -> fr -> r) -> Whittle wr a b -> Fold b fr -> Fold a r
+whitcomposef f (Whittle wstep wstate wdone) (Fold fstep fstate fdone) =
+    Fold step (wstate,fstate) done 
+        where
+            step (ws,fs) a = 
+                let (mb, ws') = wstep ws a 
+                in
+                case mb of 
+                    Nothing -> (ws',fs)
+                    Just b -> (ws', fstep fs b)
+            done (ws,fs) = 
+                let (mb, wr) = wdone ws Nothing
+                in 
+                f wr (fdone (maybe fs (fstep fs) mb)) 
+
+chunksOf :: Int -> Whittle () a [a]
+chunksOf groupSize = 
+    Whittle step (0,[]) done 
+    where
+        step (i,as) a = 
+            let i' = succ i 
+                as' = a:as
+            in
+            if (i' == groupSize)
+               then (Just (reverse as'), (i',[]))
+               else (Nothing, (i',as'))
+
+        done (_,[]) Nothing = (Nothing, ())
+        done (_,as) Nothing = (Just (reverse as), ())
+        done (i,as) (Just a) = 
+            if (i + 1 == groupSize)
+               then (Just (reverse (a:as)), ())
+               else (Nothing, ())
 
 {- $utilities
     'purely' and 'impurely' allow you to write folds compatible with the @foldl@
