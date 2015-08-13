@@ -85,6 +85,7 @@ module Control.Foldl (
     , Whittle(..)
     , whitcompose
     , whitcomposef
+    , whitcomposef_
     , chunksOf
     -- * Utilities
 
@@ -714,6 +715,10 @@ whitcomposef f (Whittle wstep wstate wdone) (Fold fstep fstate fdone) =
                 let (mb, wr) = wdone ws Nothing
                 in 
                 f wr (fdone (maybe fs (fstep fs) mb)) 
+
+
+whitcomposef_ :: Whittle wr a b -> Fold b r -> Fold a r
+whitcomposef_ w f = whitcomposef (flip const) w f
 
 chunksOf :: Int -> Whittle () a [a]
 chunksOf groupSize = 
