@@ -729,7 +729,7 @@ chunksOf groupSize =
                 as' = a:as
             in
             if (i' == groupSize)
-               then (Just (reverse as'), (i',[]))
+               then (Just (reverse as'), (0,[]))
                else (Nothing, (i',as'))
 
         done (_,[]) Nothing = (Nothing, ())
